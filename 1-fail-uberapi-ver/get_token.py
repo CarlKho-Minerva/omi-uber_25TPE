@@ -4,8 +4,8 @@
 from uber_rides.auth import AuthorizationCodeGrant
 import webbrowser
 
-CLIENT_ID = "BA-qtuUL67amtW-W6ZJoA78YpHywEmm_"
-CLIENT_SECRET = "fIwqcfcoRWAfFLTNTxjIl_2COC41BYTm4z0jrIsV"
+CLIENT_ID = ""
+CLIENT_SECRET = ""
 REDIRECT_URI = "http://localhost:5000/oauth/callback"
 
 auth_flow = AuthorizationCodeGrant(

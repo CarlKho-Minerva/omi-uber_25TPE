@@ -6,7 +6,7 @@ from uber_rides.client import UberRidesClient
 
 # --- CONFIGURATION ---
 # Paste your Server Token from the Uber Developer Dashboard
-SERVER_TOKEN = 'fIwqcfcoRWAfFLTNTxjIl_2COC41BYTm4z0jrIsV'
+SERVER_TOKEN = ''
 
 # Set up basic logging to see requests in the terminal
 logging.basicConfig(level=logging.INFO)
