@@ -1,6 +1,7 @@
 // server.mjs
 import express from "express";
-import { chromium } from "playwright";
+import { chromium } from "playwright-extra";
+import stealth from "puppeteer-extra-plugin-stealth";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -13,8 +14,9 @@ dotenv.config();
 // --- CONFIGURATION ---
 // ==============================================================================
 const CONFIG = {
+  DEMO_MODE: false, // If true, calls the ride and cancels it immediately; False -> returns price and ETA only.
   HEADLESS_MODE: false, // KEEP FALSE TO WATCH!
-  SEND_NOTIFICATIONS: false,
+  SEND_NOTIFICATIONS: true,
   OMI_APP_ID: process.env.OMI_APP_ID,
   OMI_APP_SECRET: process.env.OMI_APP_SECRET,
   PORT: process.env.PORT || 3000,
@@ -40,7 +42,9 @@ app.post("/webhook", async (req, res) => {
     .toLowerCase();
   console.log(`Chunk: "${newText}"`);
 
-    const match = newText.match(/uber (?:from|starting at)\s+(.+?)\s+to\s+([^.]+)/);
+  const match = newText.match(
+    /uber (?:from|starting at)\s+(.+?)\s+to\s+([^.]+)/
+  );
 
   if (match && match[1] && match[2]) {
     const origin = match[1].trim();
@@ -190,6 +194,46 @@ async function getUberPrice(userId, origin, destination) {
     // --- END OF BATTLE-TESTED LOGIC ---
 
     console.log(`Scraped Details: Price=${priceText}, ETA=${eta}`);
+    // --- START OF NEW DEMO MODE BLOCK ---
+    if (CONFIG.DEMO_MODE) {
+      console.log("[DEMO MODE] Selecting first ride option...");
+      await firstOption.click();
+      await page.waitForTimeout(2000); // Wait for confirm button to appear
+
+      console.log("[DEMO MODE] Clicking final 'Confirm' button...");
+      // This selector targets the button that confirms the specific ride, e.g., "Confirm UberX"
+      const confirmButton = page
+        .getByRole("button", { name: /confirm/i })
+        .first();
+      await confirmButton.click();
+
+      // Wait for the trip to be booked and the 'Cancel' option to appear
+      await page.waitForTimeout(4000);
+
+      console.log("[DEMO MODE] Clicking 'Cancel' button...");
+      const cancelButton = page
+        .getByRole("button", { name: /cancel/i })
+        .first();
+      await cancelButton.click();
+
+      // Wait for the final cancellation confirmation dialog
+      await page.waitForTimeout(1000);
+
+      console.log("[DEMO MODE] Confirming the cancellation...");
+      // This selector might need to be adjusted based on the exact text (e.g., "YES, CANCEL")
+      const finalCancelButton = page
+        .getByRole("button", { name: /yes, cancel/i })
+        .first();
+      if ((await finalCancelButton.count()) > 0) {
+        await finalCancelButton.click();
+      }
+
+      console.log(
+        "[DEMO MODE] Ride requested and canceled successfully for demo."
+      );
+      await page.waitForTimeout(2000); // Final pause to show it's done
+    }
+    // --- END OF NEW DEMO MODE BLOCK ---
     return { priceText: priceText.trim(), eta: eta.trim() };
   } catch (error) {
     const debugPath = path.resolve(__dirname, "playwright-error.png");
