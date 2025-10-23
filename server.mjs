@@ -313,6 +313,7 @@ app.get("/onboarding", (req, res) => {
 });
 
 // This endpoint receives the pasted auth content and saves it.
+// --- THE SAVE ENDPOINT (WITH CRITICAL DECODING FIX) ---
 app.post(
   "/save_auth",
   express.text({ type: "text/plain" }),
@@ -323,13 +324,20 @@ app.post(
     if (!userId || !rawBody || !rawBody.includes("=")) {
       return res.status(400).send("Missing user ID or auth content.");
     }
+
     try {
+      // Step 1: Extract the content after "auth_content="
       const authContent = rawBody.substring(rawBody.indexOf("=") + 1);
+
+      // Step 2: THE FIX - Decode the URL-encoded string
       const decodedContent = decodeURIComponent(
         authContent.replace(/\+/g, " ")
       );
+
+      // Step 3: Now, validate the CLEAN string is proper JSON
       JSON.parse(decodedContent);
 
+      // --- The rest of the logic is the same ---
       const __dirname = path.dirname(fileURLToPath(import.meta.url));
       const userAuthDir = path.resolve(__dirname, "auth_sessions");
       if (!fs.existsSync(userAuthDir)) {
@@ -337,7 +345,9 @@ app.post(
       }
       const userAuthPath = path.resolve(userAuthDir, `${userId}_auth.json`);
 
+      // Step 4: Save the CLEAN, decoded content
       fs.writeFileSync(userAuthPath, decodedContent);
+
       console.log(`Successfully saved auth session for user: ${userId}`);
       res.send(
         "<h1>Success!</h1><p>Your Uber account is linked. You can now close this window and start using the app.</p>"
