@@ -1,4 +1,4 @@
-// server.mjs (FINAL VERSION - DIRECT REPLICATION OF WORKING SCRIPT)
+// server.mjs (FINAL - DIRECT TRANSPLANT OF THE PROVEN SCRIPT)
 import express from "express";
 import { chromium } from "playwright";
 import path from "path";
@@ -13,7 +13,7 @@ dotenv.config();
 // --- CONFIGURATION ---
 // ==============================================================================
 const CONFIG = {
-  HEADLESS_MODE: false, // KEEP THIS FALSE TO WATCH IT WORK, THEN TRUE FOR PRODUCTION
+  HEADLESS_MODE: false, // KEEP THIS FALSE TO WATCH IT WORK!
   SEND_NOTIFICATIONS: false,
   OMI_APP_ID: process.env.OMI_APP_ID,
   OMI_APP_SECRET: process.env.OMI_APP_SECRET,
@@ -56,7 +56,7 @@ app.post("/webhook", async (req, res) => {
       const confirmationMessage = `Ride to ${destination}: ${rideDetails.priceText} (${rideDetails.eta}). Tap to confirm.`;
       await sendOmiNotification(userId, confirmationMessage);
     } catch (error) {
-      console.error("Playwright automation failed:", error); // Log the full error
+      console.error("Playwright automation failed:", error);
       await sendOmiNotification(
         userId,
         "Sorry, I was unable to get Uber details right now."
@@ -76,7 +76,7 @@ async function getUberPrice(destination, geolocation) {
 
   const browser = await chromium.launch({
     headless: CONFIG.HEADLESS_MODE,
-    channel: "chrome", // Use channel to be more specific
+    channel: "chrome",
   });
   const context = await browser.newContext({
     storageState: storageStatePath,
@@ -88,14 +88,9 @@ async function getUberPrice(destination, geolocation) {
 
   try {
     console.log("Navigating to m.uber.com...");
-    await page.goto("https://m.uber.com", {
-      waitUntil: "load",
-      timeout: 60000,
-    });
+    await page.goto("https://m.uber.com");
 
-    // --- START OF WORKING SCRIPT LOGIC ---
-
-    // Robust pickup handling (This is the CRITICAL first step)
+    // --- START OF PROVEN, WORKING LOGIC ---
     console.log("Starting robust pickup handling...");
     const pickupCandidates = [
       '[data-testid="enhancer-container-pickup0"] [role="combobox"]',
@@ -114,15 +109,16 @@ async function getUberPrice(destination, geolocation) {
             name: /current location|Your current location|Use my location|Use current location/i,
           })
           .first();
-        if ((await useCurrent.count()) > 0) {
-          await useCurrent.click();
-        }
+        if ((await useCurrent.count()) > 0) await useCurrent.click();
+
         await page.waitForFunction(
           (s) => {
             const el = document.querySelector(s);
             if (!el) return false;
-            const txt = el.innerText || el.getAttribute("aria-label") || "";
-            return txt.trim().length > 3;
+            return (
+              (el.innerText || el.getAttribute("aria-label") || "").trim()
+                .length > 3
+            );
           },
           sel,
           { timeout: 6000 }
@@ -130,42 +126,39 @@ async function getUberPrice(destination, geolocation) {
         pickupSet = true;
         console.log("Pickup location successfully set.");
         break;
-      } catch (err) {
-        console.warn("A pickup handling attempt failed, trying next...");
+      } catch (e) {
         continue;
       }
     }
-    if (!pickupSet)
-      console.warn(
-        "Pickup not explicitly set — proceeding but may result in errors."
-      );
+    if (!pickupSet) console.warn("Pickup not explicitly set.");
 
-    // Drop selector
     console.log("Waiting for dropoff selector...");
     const dropSelector =
       '[data-testid="enhancer-container-drop0"] [role="combobox"]';
     await page.waitForSelector(dropSelector, { timeout: 30000 });
 
-    // Type dropoff and selection
     console.log(`Typing destination: "${destination}"`);
     await page.click(dropSelector);
     await page.fill(dropSelector, destination);
-    await page.waitForTimeout(1500); // Wait for suggestions
-    await page.keyboard.press("Enter");
 
-    // Wait for Search button to be enabled
+    try {
+      const firstSuggestion = page
+        .getByRole("option", { name: new RegExp(destination, "i") })
+        .first();
+      await firstSuggestion.waitFor({ timeout: 2000 });
+      await firstSuggestion.click();
+    } catch (err) {
+      await page.keyboard.press("Enter");
+    }
+
     console.log("Waiting for Search button to be enabled...");
     await page.waitForFunction(
       () => {
         const btn = Array.from(document.querySelectorAll("button")).find(
-          (b) => {
-            const label = (
-              b.getAttribute("aria-label") ||
-              b.innerText ||
-              ""
-            ).trim();
-            return /search/i.test(label) && !b.disabled;
-          }
+          (b) =>
+            /search/i.test(
+              (b.getAttribute("aria-label") || b.innerText || "").trim()
+            ) && !b.disabled
         );
         return !!btn;
       },
@@ -173,35 +166,31 @@ async function getUberPrice(destination, geolocation) {
       { timeout: 30000 }
     );
 
-    // Click Search
     console.log("Clicking Search button...");
     await page.evaluate(() => {
-      const btn = Array.from(document.querySelectorAll("button")).find((b) => {
-        const label = (
-          b.getAttribute("aria-label") ||
-          b.innerText ||
-          ""
-        ).trim();
-        return /search/i.test(label) && !b.disabled;
-      });
+      const btn = Array.from(document.querySelectorAll("button")).find(
+        (b) =>
+          /search/i.test(
+            (b.getAttribute("aria-label") || b.innerText || "").trim()
+          ) && !b.disabled
+      );
       if (btn) btn.click();
     });
 
-    // Wait for product list
     console.log("Waiting for ride options listbox...");
     await page.waitForSelector("role=listbox", { timeout: 30000 });
 
-    // Parse ride options
     console.log("Parsing ride options...");
-    const firstOption = page.locator("role=option").first();
+    const options = page.locator("role=option");
+    const firstOption = options.first();
     const allText = await firstOption.locator("p").allTextContents();
     const priceText = allText.pop() || "";
     const eta = allText.find((t) => /min/i.test(t)) || "N/A";
 
+    // --- END OF PROVEN, WORKING LOGIC ---
+
     console.log(`Scraped Details: Price=${priceText}, ETA=${eta}`);
     return { priceText: priceText.trim(), eta: eta.trim() };
-
-    // --- END OF WORKING SCRIPT LOGIC ---
   } catch (error) {
     const debugPath = path.resolve(__dirname, "playwright-error.png");
     await page.screenshot({ path: debugPath, fullPage: true });
@@ -225,7 +214,6 @@ async function sendOmiNotification(userId, message) {
     );
     return;
   }
-  console.log(`Sending notification to ${userId}: "${message}"`);
   const url = `https://api.omi.me/v2/integrations/${
     CONFIG.OMI_APP_ID
   }/notification?uid=${encodeURIComponent(userId)}&message=${encodeURIComponent(
