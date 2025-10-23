@@ -32,39 +32,66 @@ app.use(express.json());
 
 // --- MAIN WEBHOOK ENDPOINT ---
 app.post("/webhook", async (req, res) => {
-  console.log("\n--- NEW WEBHOOK RECEIVED ---");
+  console.log("\n--- REAL-TIME WEBHOOK RECEIVED ---");
   const userId = req.query.uid;
-  const transcript = (req.body.transcript_segments || [])
+
+  // Correctly access the segments array from the payload object
+  const segments = req.body.segments;
+
+  if (!userId || !Array.isArray(segments) || segments.length === 0) {
+    return res.status(200).send("Waiting for valid transcript data."); // Respond 200 to avoid errors
+  }
+
+  const newText = segments
     .map((segment) => segment.text)
     .join(" ")
     .toLowerCase();
+  console.log(`Received text chunk: "${newText}"`);
 
-  if (!userId || !transcript.includes("uber to")) {
-    return res.status(400).send("Invalid request");
-  }
+  // --- THE NEW, ROBUST TRIGGER LOGIC ---
+  // Use a regular expression to find "uber to" and capture everything after it.
+  const match = newText.match(/uber to (.+)/);
 
-  const destination = transcript.split("uber to")[1].trim();
-  console.log(`Parsed Destination: "${destination}" for User: ${userId}`);
-
-  res.status(200).send("Processing request");
-
-  (async () => {
-    await sendOmiNotification(
-      userId,
-      `Okay, preparing your Uber to ${destination}...`
+  // Check if the pattern was found (match is not null) and it captured a destination (match[1])
+  if (match && match[1]) {
+    const destination = match[1].trim();
+    console.log(
+      `>>> TRIGGER PHRASE DETECTED. Destination: "${destination}" for User: ${userId}`
     );
-    try {
-      const rideDetails = await getUberPrice(destination, CONFIG.GEOLOCATION);
-      const confirmationMessage = `Ride to ${destination}: ${rideDetails.priceText} (${rideDetails.eta}). Tap to confirm.`;
-      await sendOmiNotification(userId, confirmationMessage);
-    } catch (error) {
-      console.error("Playwright automation failed:", error);
+
+    // Respond to Omi immediately so it knows we received the trigger
+    res
+      .status(200)
+      .send({ message: "Trigger received, launching automation." });
+
+    // Launch the full Playwright automation in the background
+    (async () => {
+      // Use the hardcoded fallback geolocation for now
+      const fallbackGeolocation = CONFIG.GEOLOCATION;
+
       await sendOmiNotification(
         userId,
-        "Sorry, I was unable to get Uber details right now."
+        `Okay, preparing your Uber to ${destination}...`
       );
-    }
-  })();
+      try {
+        const rideDetails = await getUberPrice(
+          destination,
+          fallbackGeolocation
+        );
+        const confirmationMessage = `Ride to ${destination}: ${rideDetails.priceText} (${rideDetails.eta}). Tap to confirm.`;
+        await sendOmiNotification(userId, confirmationMessage);
+      } catch (error) {
+        console.error("Playwright automation failed:", error);
+        await sendOmiNotification(
+          userId,
+          "Sorry, I was unable to get Uber details right now."
+        );
+      }
+    })();
+  } else {
+    // If the trigger phrase isn't here, just acknowledge and do nothing.
+    res.status(200).send("Segment received, no action taken.");
+  }
 });
 
 // --- THE CORE PLAYWRIGHT LOGIC (DIRECTLY FROM YOUR WORKING SCRIPT) ---
