@@ -15,7 +15,7 @@ dotenv.config();
 // ==============================================================================
 const CONFIG = {
   DEMO_MODE: false, // If true, calls the ride and cancels it immediately; False -> returns price and ETA only.
-  HEADLESS_MODE: false, // KEEP FALSE TO WATCH!
+  HEADLESS_MODE: true, // KEEP FALSE TO WATCH!
   SEND_NOTIFICATIONS: true,
   OMI_APP_ID: process.env.OMI_APP_ID,
   OMI_APP_SECRET: process.env.OMI_APP_SECRET,
