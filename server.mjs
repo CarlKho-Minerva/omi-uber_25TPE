@@ -80,9 +80,12 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// --- THE CORE PLAYWRIGHT LOGIC (FAITHFUL ADAPTATION) ---
+// --- THE CORE PLAYWRIGHT LOGIC (FINAL MULTI-USER VERSION) ---
 async function getUberPrice(userId, origin, destination) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+  // THE CRITICAL CHANGE FOR MULTI-USER:
+  // It now looks for a unique auth file for each user inside the 'auth_sessions' folder.
   const storageStatePath = path.resolve(
     __dirname,
     "auth_sessions",
@@ -90,7 +93,10 @@ async function getUberPrice(userId, origin, destination) {
   );
 
   if (!fs.existsSync(storageStatePath)) {
-    throw new Error("auth.json not found.");
+    // We throw a more user-friendly error now.
+    throw new Error(
+      `Authentication file not found for this user. Please complete the one-time setup.`
+    );
   }
 
   const browser = await chromium.launch({
@@ -291,7 +297,11 @@ async function sendOmiNotification(userId, message) {
   }
 }
 
-// --- START THE SERVER ---
+// ==============================================================================
+// --- ONBOARDING FLOW ---
+// ==============================================================================
+
+// This endpoint serves the beautiful, Uber-styled instruction page.
 app.get("/onboarding", (req, res) => {
   const userId = req.query.uid;
   if (!userId) {
@@ -299,27 +309,22 @@ app.get("/onboarding", (req, res) => {
       .status(400)
       .send("<h1>Error: Omi User ID is missing from the link.</h1>");
   }
-  // Call the new function to generate the pretty HTML
   res.send(generateOnboardingHTML(userId));
 });
 
-// --- THE SAVE ENDPOINT (with critical fixes for form handling) ---
+// This endpoint receives the pasted auth content and saves it.
 app.post(
   "/save_auth",
   express.text({ type: "text/plain" }),
   async (req, res) => {
     const userId = req.query.uid;
-    // The body from a text/plain form is a string like "auth_content=PASTED_JSON_HERE"
     const rawBody = req.body;
 
     if (!userId || !rawBody || !rawBody.includes("=")) {
       return res.status(400).send("Missing user ID or auth content.");
     }
-
     try {
-      // Extract the JSON part after the first '='
       const authContent = rawBody.substring(rawBody.indexOf("=") + 1);
-      // Decode URL-encoded characters (like %20 for space) and validate it's JSON
       const decodedContent = decodeURIComponent(
         authContent.replace(/\+/g, " ")
       );
@@ -335,7 +340,7 @@ app.post(
       fs.writeFileSync(userAuthPath, decodedContent);
       console.log(`Successfully saved auth session for user: ${userId}`);
       res.send(
-        "<h1>Success!</h1><p>Your Uber account is linked. You can close this window and start using the app.</p>"
+        "<h1>Success!</h1><p>Your Uber account is linked. You can now close this window and start using the app.</p>"
       );
     } catch (error) {
       console.error(`Failed to save auth for user ${userId}:`, error.message);
@@ -348,10 +353,7 @@ app.post(
   }
 );
 
-app.listen(CONFIG.PORT, () => {
-  console.log(`Omi Uber App server listening on port ${CONFIG.PORT}`);
-});
-
+// This function generates the beautiful HTML page.
 function generateOnboardingHTML(userId) {
   return `
     <!DOCTYPE html>
@@ -362,92 +364,30 @@ function generateOnboardingHTML(userId) {
         <title>Link Your Uber Account</title>
         <style>
             @import url('https://d3i4yxtzktqr9n.cloudfront.net/web-eats-legacy/v1/css/UberMoveText.css');
-            body {
-                margin: 0;
-                font-family: 'Uber Move Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-                background-color: #f6f6f6;
-                color: #111;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                min-height: 100vh;
-                padding: 20px;
-                box-sizing: border-box;
-            }
-            .container {
-                background-color: #fff;
-                padding: 48px;
-                border-radius: 12px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-                max-width: 600px;
-                width: 100%;
-            }
-            .header {
-                font-family: 'Uber Move', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-                font-size: 36px;
-                font-weight: 700;
-                margin-bottom: 24px;
-            }
-            p, li {
-                font-size: 16px;
-                line-height: 1.6;
-                color: #545454;
-            }
-            ol {
-                padding-left: 20px;
-            }
-            code {
-                background: #eee;
-                padding: 5px 8px;
-                border-radius: 5px;
-                font-family: monospace;
-                word-break: break-all;
-                border: 1px solid #e0e0e0;
-            }
-            textarea {
-                width: 100%;
-                padding: 12px;
-                border: 1px solid #ccc;
-                border-radius: 8px;
-                font-size: 14px;
-                margin-top: 16px;
-                resize: vertical;
-                box-sizing: border-box;
-            }
-            button {
-                background-color: #000;
-                color: #fff;
-                border: none;
-                padding: 14px 24px;
-                font-size: 16px;
-                font-weight: 500;
-                border-radius: 8px;
-                cursor: pointer;
-                width: 100%;
-                margin-top: 24px;
-                transition: background-color 0.2s;
-            }
-            button:hover {
-                background-color: #333;
-            }
+            body { margin: 0; font-family: 'Uber Move Text', sans-serif; background-color: #f6f6f6; color: #111; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; box-sizing: border-box; }
+            .container { background-color: #fff; padding: 48px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 600px; width: 100%; }
+            .header { font-family: 'Uber Move', sans-serif; font-size: 36px; font-weight: 700; margin-bottom: 24px; }
+            p, li { font-size: 16px; line-height: 1.6; color: #545454; }
+            ol { padding-left: 20px; }
+            code { background: #eee; padding: 5px 8px; border-radius: 5px; font-family: monospace; word-break: break-all; border: 1px solid #e0e0e0; }
+            textarea { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; margin-top: 16px; resize: vertical; box-sizing: border-box; }
+            button { background-color: #000; color: #fff; border: none; padding: 14px 24px; font-size: 16px; font-weight: 500; border-radius: 8px; cursor: pointer; width: 100%; margin-top: 24px; transition: background-color 0.2s; }
+            button:hover { background-color: #333; }
         </style>
     </head>
     <body>
         <div class="container">
             <div class="header">Link Your Uber Account</div>
             <p>To use voice commands with Omi, this app needs to securely link your Uber session. Your password is never seen or stored by our service.</p>
-
             <h3>Instructions</h3>
             <ol>
                 <li><b>On a computer</b>, open a terminal and run this command:</li>
                 <li><code>npx playwright codegen --save-storage=auth.json https://m.uber.com</code></li>
                 <li>A new browser will open. Please <b>log in to your Uber account.</b></li>
                 <li>After you are logged in, close that browser window.</li>
-                <li>A file named <b>auth.json</b> will be saved. Open it with any text editor.</li>
-                <li>Copy the <b>entire contents</b> of the file.</li>
-                <li>Paste the contents into the box below and click Save.</li>
+                <li>A file named <b>auth.json</b> will be saved. Open it with a text editor.</li>
+                <li>Copy the <b>entire contents</b> of the file and paste it into the box below.</li>
             </ol>
-
             <form action="/save_auth?uid=${userId}" method="post" enctype="text/plain">
                 <textarea name="auth_content" rows="8" placeholder="Paste the entire contents of your auth.json file here..." required></textarea>
                 <button type="submit">Save My Uber Session</button>
@@ -457,3 +397,113 @@ function generateOnboardingHTML(userId) {
     </html>
   `;
 }
+
+app.listen(CONFIG.PORT, () => {
+  console.log(`Omi Uber App server listening on port ${CONFIG.PORT}`);
+});
+
+// function generateOnboardingHTML(userId) {
+//   return `
+//     <!DOCTYPE html>
+//     <html lang="en">
+//     <head>
+//         <meta charset="UTF-8">
+//         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+//         <title>Link Your Uber Account</title>
+//         <style>
+//             @import url('https://d3i4yxtzktqr9n.cloudfront.net/web-eats-legacy/v1/css/UberMoveText.css');
+//             body {
+//                 margin: 0;
+//                 font-family: 'Uber Move Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+//                 background-color: #f6f6f6;
+//                 color: #111;
+//                 display: flex;
+//                 justify-content: center;
+//                 align-items: center;
+//                 min-height: 100vh;
+//                 padding: 20px;
+//                 box-sizing: border-box;
+//             }
+//             .container {
+//                 background-color: #fff;
+//                 padding: 48px;
+//                 border-radius: 12px;
+//                 box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+//                 max-width: 600px;
+//                 width: 100%;
+//             }
+//             .header {
+//                 font-family: 'Uber Move', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+//                 font-size: 36px;
+//                 font-weight: 700;
+//                 margin-bottom: 24px;
+//             }
+//             p, li {
+//                 font-size: 16px;
+//                 line-height: 1.6;
+//                 color: #545454;
+//             }
+//             ol {
+//                 padding-left: 20px;
+//             }
+//             code {
+//                 background: #eee;
+//                 padding: 5px 8px;
+//                 border-radius: 5px;
+//                 font-family: monospace;
+//                 word-break: break-all;
+//                 border: 1px solid #e0e0e0;
+//             }
+//             textarea {
+//                 width: 100%;
+//                 padding: 12px;
+//                 border: 1px solid #ccc;
+//                 border-radius: 8px;
+//                 font-size: 14px;
+//                 margin-top: 16px;
+//                 resize: vertical;
+//                 box-sizing: border-box;
+//             }
+//             button {
+//                 background-color: #000;
+//                 color: #fff;
+//                 border: none;
+//                 padding: 14px 24px;
+//                 font-size: 16px;
+//                 font-weight: 500;
+//                 border-radius: 8px;
+//                 cursor: pointer;
+//                 width: 100%;
+//                 margin-top: 24px;
+//                 transition: background-color 0.2s;
+//             }
+//             button:hover {
+//                 background-color: #333;
+//             }
+//         </style>
+//     </head>
+//     <body>
+//         <div class="container">
+//             <div class="header">Link Your Uber Account</div>
+//             <p>To use voice commands with Omi, this app needs to securely link your Uber session. Your password is never seen or stored by our service.</p>
+
+//             <h3>Instructions</h3>
+//             <ol>
+//                 <li><b>On a computer</b>, open a terminal and run this command:</li>
+//                 <li><code>npx playwright codegen --save-storage=auth.json https://m.uber.com</code></li>
+//                 <li>A new browser will open. Please <b>log in to your Uber account.</b></li>
+//                 <li>After you are logged in, close that browser window.</li>
+//                 <li>A file named <b>auth.json</b> will be saved. Open it with any text editor.</li>
+//                 <li>Copy the <b>entire contents</b> of the file.</li>
+//                 <li>Paste the contents into the box below and click Save.</li>
+//             </ol>
+
+//             <form action="/save_auth?uid=${userId}" method="post" enctype="text/plain">
+//                 <textarea name="auth_content" rows="8" placeholder="Paste the entire contents of your auth.json file here..." required></textarea>
+//                 <button type="submit">Save My Uber Session</button>
+//             </form>
+//         </div>
+//     </body>
+//     </html>
+//   `;
+// }
