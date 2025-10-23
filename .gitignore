@@ -1,9 +1,0 @@
-/__pycache__
-/venv
-/venv-playwright
-secret.md
-# .gitignore file
-.env
-node_modules
-auth.json
-.DS_Store
