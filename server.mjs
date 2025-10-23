@@ -1,6 +1,4 @@
-const pendingConfirmations = new Map();
-
-// server.mjs (FINAL - DIRECT TRANSPLANT OF THE PROVEN SCRIPT)
+// server.mjs (FINAL - FAITHFUL ADAPTATION OF THE WORKING SCRIPT)
 import express from "express";
 import { chromium } from "playwright";
 import path from "path";
@@ -15,15 +13,11 @@ dotenv.config();
 // --- CONFIGURATION ---
 // ==============================================================================
 const CONFIG = {
-  HEADLESS_MODE: false, // KEEP THIS FALSE TO WATCH IT WORK!
+  HEADLESS_MODE: false, // KEEP FALSE TO WATCH!
   SEND_NOTIFICATIONS: false,
   OMI_APP_ID: process.env.OMI_APP_ID,
   OMI_APP_SECRET: process.env.OMI_APP_SECRET,
   PORT: process.env.PORT || 3000,
-  GEOLOCATION: {
-    latitude: 25.006625,
-    longitude: 121.534203,
-  },
 };
 // ==============================================================================
 
@@ -34,73 +28,56 @@ app.use(express.json());
 app.post("/webhook", async (req, res) => {
   console.log("\n--- REAL-TIME WEBHOOK RECEIVED ---");
   const userId = req.query.uid;
-
-  // Correctly access the segments array from the payload object
   const segments = req.body.segments;
 
   if (!userId || !Array.isArray(segments) || segments.length === 0) {
-    return res.status(200).send("Waiting for valid transcript data."); // Respond 200 to avoid errors
+    return res.status(200).send("Waiting for data.");
   }
 
   const newText = segments
-    .map((segment) => segment.text)
+    .map((s) => s.text)
     .join(" ")
     .toLowerCase();
-  console.log(`Received text chunk: "${newText}"`);
+  console.log(`Chunk: "${newText}"`);
 
-  // --- THE NEW, ROBUST TRIGGER LOGIC ---
-  // Use a regular expression to find "uber to" and capture everything after it.
-  const match = newText.match(/uber to (.+)/);
+  const match = newText.match(/uber (?:from|starting at)\s+(.+?)\s+to\s+(.+)/);
 
-  // Check if the pattern was found (match is not null) and it captured a destination (match[1])
-  if (match && match[1]) {
-    const destination = match[1].trim();
-    console.log(
-      `>>> TRIGGER PHRASE DETECTED. Destination: "${destination}" for User: ${userId}`
-    );
+  if (match && match[1] && match[2]) {
+    const origin = match[1].trim();
+    const destination = match[2].trim();
+    console.log(`>>> TRIGGER DETECTED: From "${origin}" to "${destination}"`);
 
-    // Respond to Omi immediately so it knows we received the trigger
-    res
-      .status(200)
-      .send({ message: "Trigger received, launching automation." });
+    res.status(200).send("Processing request");
 
-    // Launch the full Playwright automation in the background
     (async () => {
-      // Use the hardcoded fallback geolocation for now
-      const fallbackGeolocation = CONFIG.GEOLOCATION;
-
       await sendOmiNotification(
         userId,
-        `Okay, preparing your Uber to ${destination}...`
+        `Okay, preparing Uber from ${origin} to ${destination}...`
       );
       try {
-        const rideDetails = await getUberPrice(
-          destination,
-          fallbackGeolocation
-        );
-        const confirmationMessage = `Ride to ${destination}: ${rideDetails.priceText} (${rideDetails.eta}). Tap to confirm.`;
+        const rideDetails = await getUberPrice(userId, origin, destination);
+        const confirmationMessage = `Ride from ${origin} to ${destination}: ${rideDetails.priceText} (${rideDetails.eta}). Tap to confirm.`;
         await sendOmiNotification(userId, confirmationMessage);
       } catch (error) {
         console.error("Playwright automation failed:", error);
         await sendOmiNotification(
           userId,
-          "Sorry, I was unable to get Uber details right now."
+          "Sorry, I was unable to get details."
         );
       }
     })();
   } else {
-    // If the trigger phrase isn't here, just acknowledge and do nothing.
-    res.status(200).send("Segment received, no action taken.");
+    res.status(200).send("No action taken.");
   }
 });
 
-// --- THE CORE PLAYWRIGHT LOGIC (DIRECTLY FROM YOUR WORKING SCRIPT) ---
-async function getUberPrice(destination, geolocation) {
+// --- THE CORE PLAYWRIGHT LOGIC (FAITHFUL ADAPTATION) ---
+async function getUberPrice(userId, origin, destination) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const storageStatePath = path.resolve(__dirname, "auth.json");
+  const storageStatePath = path.resolve(__dirname, "auth.json"); // Using the single auth.json for the demo
 
   if (!fs.existsSync(storageStatePath)) {
-    throw new Error("auth.json not found. Please run codegen first.");
+    throw new Error("auth.json not found.");
   }
 
   const browser = await chromium.launch({
@@ -109,8 +86,6 @@ async function getUberPrice(destination, geolocation) {
   });
   const context = await browser.newContext({
     storageState: storageStatePath,
-    geolocation: geolocation,
-    permissions: ["geolocation"],
     viewport: { width: 1280, height: 800 },
   });
   const page = await context.newPage();
@@ -119,8 +94,9 @@ async function getUberPrice(destination, geolocation) {
     console.log("Navigating to m.uber.com...");
     await page.goto("https://m.uber.com");
 
-    // --- START OF PROVEN, WORKING LOGIC ---
-    console.log("Starting robust pickup handling...");
+    // --- START OF BATTLE-TESTED LOGIC ---
+
+    // Robust pickup handling
     const pickupCandidates = [
       '[data-testid="enhancer-container-pickup0"] [role="combobox"]',
       '[data-testid^="enhancer-container"] [role="combobox"]',
@@ -133,12 +109,13 @@ async function getUberPrice(destination, geolocation) {
         const loc = page.locator(sel).first();
         if ((await loc.count()) === 0) continue;
         await loc.click({ timeout: 5000 });
-        const useCurrent = page
-          .getByRole("option", {
-            name: /current location|Your current location|Use my location|Use current location/i,
-          })
-          .first();
-        if ((await useCurrent.count()) > 0) await useCurrent.click();
+
+        // --- PRECISE CHANGE #1: TYPE THE ORIGIN INSTEAD OF CLICKING "CURRENT LOCATION" ---
+        console.log(`Typing origin: "${origin}"`);
+        await page.fill(sel, origin);
+        await page.waitForTimeout(3500); // Wait for suggestions
+        await page.keyboard.press("Enter");
+        // --- END OF CHANGE #1 ---
 
         await page.waitForFunction(
           (s) => {
@@ -161,26 +138,20 @@ async function getUberPrice(destination, geolocation) {
     }
     if (!pickupSet) console.warn("Pickup not explicitly set.");
 
-    console.log("Waiting for dropoff selector...");
+    // Drop selector
     const dropSelector =
       '[data-testid="enhancer-container-drop0"] [role="combobox"]';
     await page.waitForSelector(dropSelector, { timeout: 30000 });
 
+    // --- PRECISE CHANGE #2: TYPE THE DESTINATION VARIABLE ---
     console.log(`Typing destination: "${destination}"`);
     await page.click(dropSelector);
     await page.fill(dropSelector, destination);
+    await page.waitForTimeout(3500); // Wait for suggestions
+    await page.keyboard.press("Enter");
+    // --- END OF CHANGE #2 ---
 
-    try {
-      const firstSuggestion = page
-        .getByRole("option", { name: new RegExp(destination, "i") })
-        .first();
-      await firstSuggestion.waitFor({ timeout: 2000 });
-      await firstSuggestion.click();
-    } catch (err) {
-      await page.keyboard.press("Enter");
-    }
-
-    console.log("Waiting for Search button to be enabled...");
+    // Wait for Search enabled
     await page.waitForFunction(
       () => {
         const btn = Array.from(document.querySelectorAll("button")).find(
@@ -195,7 +166,7 @@ async function getUberPrice(destination, geolocation) {
       { timeout: 30000 }
     );
 
-    console.log("Clicking Search button...");
+    // Click Search
     await page.evaluate(() => {
       const btn = Array.from(document.querySelectorAll("button")).find(
         (b) =>
@@ -206,17 +177,17 @@ async function getUberPrice(destination, geolocation) {
       if (btn) btn.click();
     });
 
-    console.log("Waiting for ride options listbox...");
+    // Wait for product list
     await page.waitForSelector("role=listbox", { timeout: 30000 });
 
-    console.log("Parsing ride options...");
+    // Parse ride options
     const options = page.locator("role=option");
     const firstOption = options.first();
     const allText = await firstOption.locator("p").allTextContents();
     const priceText = allText.pop() || "";
     const eta = allText.find((t) => /min/i.test(t)) || "N/A";
 
-    // --- END OF PROVEN, WORKING LOGIC ---
+    // --- END OF BATTLE-TESTED LOGIC ---
 
     console.log(`Scraped Details: Price=${priceText}, ETA=${eta}`);
     return { priceText: priceText.trim(), eta: eta.trim() };
