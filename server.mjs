@@ -1,154 +1,256 @@
-// server.mjs (Secure Version)
+// server.mjs (FINAL VERSION - DIRECT REPLICATION OF WORKING SCRIPT)
 import express from "express";
 import { chromium } from "playwright";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
 
-// Load environment variables from .env file
 dotenv.config();
 
+// ==============================================================================
 // --- CONFIGURATION ---
-const OMI_APP_ID = process.env.OMI_APP_ID;
-const OMI_APP_SECRET = process.env.OMI_APP_SECRET;
-const PORT = process.env.PORT || 3000;
+// ==============================================================================
+const CONFIG = {
+  HEADLESS_MODE: false, // KEEP THIS FALSE TO WATCH IT WORK, THEN TRUE FOR PRODUCTION
+  SEND_NOTIFICATIONS: false,
+  OMI_APP_ID: process.env.OMI_APP_ID,
+  OMI_APP_SECRET: process.env.OMI_APP_SECRET,
+  PORT: process.env.PORT || 3000,
+  GEOLOCATION: {
+    latitude: 25.006625,
+    longitude: 121.534203,
+  },
+};
+// ==============================================================================
 
-// --- A simple in-memory store for pending rides ---
-const pendingRides = new Map();
-
-// --- OMI NOTIFIER HELPER ---
-async function sendOmiNotification(userId, message) {
-  console.log(`Sending notification to ${userId}: "${message}"`);
-  const url = `https://api.omi.me/v2/integrations/${OMI_APP_ID}/notification?uid=${encodeURIComponent(
-    userId
-  )}&message=${encodeURIComponent(message)}`;
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${OMI_APP_SECRET}` },
-    });
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`OMI API Error: ${response.statusText} - ${errorBody}`);
-    }
-    console.log("Notification sent successfully.");
-  } catch (error) {
-    console.error("Failed to send Omi notification:", error);
-  }
-}
-
-// --- SETUP EXPRESS APP ---
 const app = express();
 app.use(express.json());
 
-// --- THE MAIN WEBHOOK ENDPOINT (FINAL CORRECTED VERSION) ---
+// --- MAIN WEBHOOK ENDPOINT ---
 app.post("/webhook", async (req, res) => {
-  console.log("--- NEW WEBHOOK RECEIVED FROM OMI ---");
-  console.log("Query Parameters Received:", req.query);
-  console.log("Full Request Body Received:", JSON.stringify(req.body, null, 2));
-
+  console.log("\n--- NEW WEBHOOK RECEIVED ---");
   const userId = req.query.uid;
-
-  // --- THE FIX IS HERE ---
-  // We now correctly read the transcript from the "transcript_segments" array.
-  // We map over each segment, get its text, and join them together with a space.
   const transcript = (req.body.transcript_segments || [])
     .map((segment) => segment.text)
     .join(" ")
     .toLowerCase();
 
-  // --- VALIDATION LOGIC ---
-  if (!userId) {
-    console.error('VALIDATION FAILED: No "uid" found in query parameters.');
-    return res.status(400).send("Invalid request: Missing user ID.");
+  if (!userId || !transcript.includes("uber to")) {
+    return res.status(400).send("Invalid request");
   }
 
-  // Check if we were able to build a transcript
-  if (!transcript) {
-    console.error(
-      'VALIDATION FAILED: The request body does not contain "transcript_segments".'
-    );
-    return res
-      .status(400)
-      .send("Invalid request: Payload is missing transcript data.");
-  }
-
-  // Check for the trigger phrase
-  if (!transcript.includes("uber to")) {
-    console.error(
-      `VALIDATION FAILED: Transcript "${transcript}" does not contain "uber to".`
-    );
-    return res.status(400).send("Invalid request: Trigger phrase not found.");
-  }
-
-  console.log(
-    "Validation successful. Proceeding with Playwright automation..."
-  );
-
-  // 1. Parse the destination
   const destination = transcript.split("uber to")[1].trim();
-  console.log(`Parsed Destination: ${destination} for User: ${userId}`);
+  console.log(`Parsed Destination: "${destination}" for User: ${userId}`);
 
-  // 2. Send the "Preparing" notification
-  await sendOmiNotification(
-    userId,
-    `Okay, preparing your Uber to ${destination}..`
-  );
   res.status(200).send("Processing request");
 
-  // 3. Launch Playwright in the background
-  try {
-    const rideDetails = await getUberPrice(destination);
-    const rideId = Date.now().toString();
-    pendingRides.set(rideId, { userId, destination });
-    const confirmationMessage = `Ride to ${destination}: ${rideDetails.priceText} (${rideDetails.eta}). Tap here to confirm.`;
-    await sendOmiNotification(userId, confirmationMessage);
-  } catch (error) {
-    console.error("Playwright automation failed:", error);
+  (async () => {
     await sendOmiNotification(
       userId,
-      "Sorry, I was unable to get Uber details right now."
+      `Okay, preparing your Uber to ${destination}...`
     );
-  }
+    try {
+      const rideDetails = await getUberPrice(destination, CONFIG.GEOLOCATION);
+      const confirmationMessage = `Ride to ${destination}: ${rideDetails.priceText} (${rideDetails.eta}). Tap to confirm.`;
+      await sendOmiNotification(userId, confirmationMessage);
+    } catch (error) {
+      console.error("Playwright automation failed:", error); // Log the full error
+      await sendOmiNotification(
+        userId,
+        "Sorry, I was unable to get Uber details right now."
+      );
+    }
+  })();
 });
 
-// --- THE PLAYWRIGHT LOGIC ---
-async function getUberPrice(destination) {
+// --- THE CORE PLAYWRIGHT LOGIC (DIRECTLY FROM YOUR WORKING SCRIPT) ---
+async function getUberPrice(destination, geolocation) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const storageStatePath = path.resolve(__dirname, "auth.json");
-  const browser = await chromium.launch({ headless: false });
-  const context = await browser.newContext({ storageState: storageStatePath });
+
+  if (!fs.existsSync(storageStatePath)) {
+    throw new Error("auth.json not found. Please run codegen first.");
+  }
+
+  const browser = await chromium.launch({
+    headless: CONFIG.HEADLESS_MODE,
+    channel: "chrome", // Use channel to be more specific
+  });
+  const context = await browser.newContext({
+    storageState: storageStatePath,
+    geolocation: geolocation,
+    permissions: ["geolocation"],
+    viewport: { width: 1280, height: 800 },
+  });
   const page = await context.newPage();
 
   try {
     console.log("Navigating to m.uber.com...");
-    await page.goto("https://m.uber.com", { waitUntil: "domcontentloaded" });
+    await page.goto("https://m.uber.com", {
+      waitUntil: "load",
+      timeout: 60000,
+    });
 
-    console.log("Filling destination...");
-    await page.getByLabel("Where to?").fill(destination);
+    // --- START OF WORKING SCRIPT LOGIC ---
+
+    // Robust pickup handling (This is the CRITICAL first step)
+    console.log("Starting robust pickup handling...");
+    const pickupCandidates = [
+      '[data-testid="enhancer-container-pickup0"] [role="combobox"]',
+      '[data-testid^="enhancer-container"] [role="combobox"]',
+      "role=combobox[name=/pickup/i]",
+      "role=combobox >> nth=0",
+    ];
+    let pickupSet = false;
+    for (const sel of pickupCandidates) {
+      try {
+        const loc = page.locator(sel).first();
+        if ((await loc.count()) === 0) continue;
+        await loc.click({ timeout: 5000 });
+        const useCurrent = page
+          .getByRole("option", {
+            name: /current location|Your current location|Use my location|Use current location/i,
+          })
+          .first();
+        if ((await useCurrent.count()) > 0) {
+          await useCurrent.click();
+        }
+        await page.waitForFunction(
+          (s) => {
+            const el = document.querySelector(s);
+            if (!el) return false;
+            const txt = el.innerText || el.getAttribute("aria-label") || "";
+            return txt.trim().length > 3;
+          },
+          sel,
+          { timeout: 6000 }
+        );
+        pickupSet = true;
+        console.log("Pickup location successfully set.");
+        break;
+      } catch (err) {
+        console.warn("A pickup handling attempt failed, trying next...");
+        continue;
+      }
+    }
+    if (!pickupSet)
+      console.warn(
+        "Pickup not explicitly set — proceeding but may result in errors."
+      );
+
+    // Drop selector
+    console.log("Waiting for dropoff selector...");
+    const dropSelector =
+      '[data-testid="enhancer-container-drop0"] [role="combobox"]';
+    await page.waitForSelector(dropSelector, { timeout: 30000 });
+
+    // Type dropoff and selection
+    console.log(`Typing destination: "${destination}"`);
+    await page.click(dropSelector);
+    await page.fill(dropSelector, destination);
+    await page.waitForTimeout(1500); // Wait for suggestions
     await page.keyboard.press("Enter");
 
-    console.log("Waiting for ride options...");
-    await page.waitForSelector("role=listbox");
+    // Wait for Search button to be enabled
+    console.log("Waiting for Search button to be enabled...");
+    await page.waitForFunction(
+      () => {
+        const btn = Array.from(document.querySelectorAll("button")).find(
+          (b) => {
+            const label = (
+              b.getAttribute("aria-label") ||
+              b.innerText ||
+              ""
+            ).trim();
+            return /search/i.test(label) && !b.disabled;
+          }
+        );
+        return !!btn;
+      },
+      null,
+      { timeout: 30000 }
+    );
 
+    // Click Search
+    console.log("Clicking Search button...");
+    await page.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll("button")).find((b) => {
+        const label = (
+          b.getAttribute("aria-label") ||
+          b.innerText ||
+          ""
+        ).trim();
+        return /search/i.test(label) && !b.disabled;
+      });
+      if (btn) btn.click();
+    });
+
+    // Wait for product list
+    console.log("Waiting for ride options listbox...");
+    await page.waitForSelector("role=listbox", { timeout: 30000 });
+
+    // Parse ride options
+    console.log("Parsing ride options...");
     const firstOption = page.locator("role=option").first();
-    const priceText =
-      (await firstOption.locator("p").allTextContents()).pop() || "";
-    const eta =
-      (await firstOption.locator("p").allTextContents()).find((t) =>
-        /min/i.test(t)
-      ) || "N/A";
+    const allText = await firstOption.locator("p").allTextContents();
+    const priceText = allText.pop() || "";
+    const eta = allText.find((t) => /min/i.test(t)) || "N/A";
 
     console.log(`Scraped Details: Price=${priceText}, ETA=${eta}`);
     return { priceText: priceText.trim(), eta: eta.trim() };
+
+    // --- END OF WORKING SCRIPT LOGIC ---
+  } catch (error) {
+    const debugPath = path.resolve(__dirname, "playwright-error.png");
+    await page.screenshot({ path: debugPath, fullPage: true });
+    console.error(`Debug screenshot saved to ${debugPath}`);
+    throw error;
   } finally {
+    console.log("Closing browser.");
     await browser.close();
   }
 }
 
+// --- OMI NOTIFIER HELPER (Remains the same) ---
+async function sendOmiNotification(userId, message) {
+  if (!CONFIG.SEND_NOTIFICATIONS) {
+    console.log(`(NOTIFICATIONS OFF) To ${userId}: "${message}"`);
+    return;
+  }
+  if (!CONFIG.OMI_APP_ID || !CONFIG.OMI_APP_SECRET) {
+    console.warn(
+      "Omi credentials not set in .env file. Skipping notification."
+    );
+    return;
+  }
+  console.log(`Sending notification to ${userId}: "${message}"`);
+  const url = `https://api.omi.me/v2/integrations/${
+    CONFIG.OMI_APP_ID
+  }/notification?uid=${encodeURIComponent(userId)}&message=${encodeURIComponent(
+    message
+  )}`;
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${CONFIG.OMI_APP_SECRET}` },
+    });
+    if (!response.ok) {
+      console.warn(
+        `Omi API returned status ${
+          response.status
+        }. Body: ${await response.text()}`
+      );
+    } else {
+      console.log("Notification sent successfully.");
+    }
+  } catch (error) {
+    console.error("Failed to send Omi notification:", error.message);
+  }
+}
+
 // --- START THE SERVER ---
-app.listen(PORT, () => {
-  console.log(`Omi Uber App server listening on port ${PORT}`);
-  console.log(`Webhook endpoint: http://localhost:${PORT}/webhook`);
+app.listen(CONFIG.PORT, () => {
+  console.log(`Omi Uber App server listening on port ${CONFIG.PORT}`);
 });
