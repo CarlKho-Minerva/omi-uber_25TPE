@@ -10,29 +10,78 @@ import path from 'path';
     process.exit(1);
   }
 
-  // Use real Google Chrome if available
-  const browser = await chromium.launchPersistentContext('', {
+  // Launch real Google Chrome (if available) and create a context that uses the saved storage state.
+  // Using launch() + newContext({ storageState }) ensures Playwright applies the saved auth correctly.
+  const browser = await chromium.launch({
     channel: 'chrome',
     headless: false,
+  });
+
+  const context = await browser.newContext({
     viewport: { width: 1280, height: 800 },
     storageState: storage,
     permissions: ['geolocation', 'clipboard-read', 'clipboard-write'],
     geolocation: { latitude: 25.006625, longitude: 121.534203 },
-    // slowMo: 50,
   });
 
   try {
-    const page = await browser.newPage();
+    const page = await context.newPage();
     await page.goto('https://m.uber.com');
 
-    // Ensure we're on the ride flow
-    await page.waitForLoadState('networkidle');
+    // Ensure pickup uses current location: try several pickup combobox selectors and select 'Use current location'.
+    const pickupCandidates = [
+      '[data-testid="enhancer-container-pickup0"] [role="combobox"]',
+      'role=combobox[name=/pickup/i]',
+      'role=combobox >> nth=0',
+    ];
+    let pickupFound = false;
+    for (const sel of pickupCandidates) {
+      try {
+        const loc = page.locator(sel).first();
+        if (await loc.count() === 0) continue;
+        await loc.scrollIntoViewIfNeeded();
+        await loc.click({ timeout: 5000 });
+        pickupFound = true;
 
-    // Click pickup if necessary (this script assumes pickup is already set via storageState by the interactive login)
-    // Click drop combobox and type NTU
+        // Try to click obvious "current location" options
+        const useCurrentOption = page.getByRole('option', { name: /current location|Your current location|Use my location/i }).first();
+        if (await useCurrentOption.count() > 0) {
+          await useCurrentOption.click();
+        } else {
+          // Fallback: click map 'Show your location' / center button if present
+          const centerBtn = page.locator('button:has(img[alt="Center"])').first();
+          if (await centerBtn.count() > 0) {
+            await centerBtn.click();
+          } else {
+            console.warn('Could not find an explicit "Use current location" control for pickup (selector=' + sel + ').');
+          }
+        }
+        break;
+      } catch (err) {
+        // try next candidate
+        continue;
+      }
+    }
+    if (!pickupFound) {
+      console.warn('Pickup combobox not found with any candidate selectors. Continuing; pickup may be empty.');
+    }
+
+    // Ensure we're on the ride flow by waiting for the dropoff combobox to appear.
+    // Save a debug screenshot if the selector does not appear in time.
     const dropSelector = '[data-testid="enhancer-container-drop0"] [role="combobox"]';
-    await page.waitForSelector(dropSelector, { timeout: 5000 });
-    await page.click(dropSelector);
+    try {
+      await page.waitForSelector(dropSelector, { timeout: 30000 });
+    } catch (err) {
+      const debugOut = path.resolve(process.cwd(), 'scripts', 'debug-uber.png');
+      try {
+        await page.screenshot({ path: debugOut, fullPage: true });
+        console.error('Timeout waiting for drop selector — saved debug screenshot to', debugOut);
+      } catch (screenshotErr) {
+        console.error('Failed to save debug screenshot:', screenshotErr);
+      }
+      throw err;
+    }
+  await page.click(dropSelector);
     await page.fill(dropSelector, 'NTU');
     await page.waitForTimeout(800);
 
@@ -45,8 +94,22 @@ import path from 'path';
       await page.keyboard.press('Enter');
     }
 
-    // Click Search
+    // Click Search when enabled
     const search = page.getByRole('button', { name: 'Search' });
+    try {
+      // Wait until Search is present and enabled (not disabled)
+      await page.waitForFunction(() => {
+        const btn = Array.from(document.querySelectorAll('button')).find(b => {
+          const label = b.getAttribute('aria-label') || b.innerText || '';
+          return /search/i.test(label.trim());
+        });
+        return !!btn && !btn.disabled;
+      }, null, { timeout: 30000 });
+    } catch (err) {
+      const debugOut = path.resolve(process.cwd(), 'scripts', 'debug-search-wait.png');
+      try { await page.screenshot({ path: debugOut, fullPage: true }); console.error('Search button did not become enabled — saved', debugOut); } catch(e){}
+      throw err;
+    }
     await search.click();
 
     // Wait for product selection to populate
