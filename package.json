@@ -1,0 +1,23 @@
+{
+  "name": "omi-uber_25tpe",
+  "version": "1.0.0",
+  "description": "",
+  "main": "tmp-find-login.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CarlKho-Minerva/omi-uber_25TPE.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/CarlKho-Minerva/omi-uber_25TPE/issues"
+  },
+  "homepage": "https://github.com/CarlKho-Minerva/omi-uber_25TPE#readme",
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}
