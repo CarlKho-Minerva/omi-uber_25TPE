@@ -19,5 +19,10 @@
   "homepage": "https://github.com/CarlKho-Minerva/omi-uber_25TPE#readme",
   "devDependencies": {
     "playwright": "^1.56.1"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "node-fetch": "^2.7.0"
   }
 }
