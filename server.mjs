@@ -113,7 +113,7 @@ async function getUberPrice(userId, origin, destination) {
         // --- PRECISE CHANGE #1: TYPE THE ORIGIN INSTEAD OF CLICKING "CURRENT LOCATION" ---
         console.log(`Typing origin: "${origin}"`);
         await page.fill(sel, origin);
-        await page.waitForTimeout(3500); // Wait for suggestions
+        await page.waitForTimeout(13500); // Wait for suggestions
         await page.keyboard.press("Enter");
         // --- END OF CHANGE #1 ---
 

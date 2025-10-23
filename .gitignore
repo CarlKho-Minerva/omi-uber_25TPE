@@ -1,0 +1,8 @@
+# Node dependencies
+node_modules
+
+# Secrets
+.env
+auth.json
+
+/.github/
