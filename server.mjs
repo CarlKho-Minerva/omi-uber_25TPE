@@ -26,6 +26,11 @@ const CONFIG = {
 const app = express();
 app.use(express.json());
 
+// Health check endpoint for the cloud platform
+app.get("/", (req, res) => {
+  res.status(200).send("Omi Uber App is running!");
+});
+
 // --- MAIN WEBHOOK ENDPOINT ---
 app.post("/webhook", async (req, res) => {
   console.log("\n--- REAL-TIME WEBHOOK RECEIVED ---");
