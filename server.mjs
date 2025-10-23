@@ -78,7 +78,11 @@ app.post("/webhook", async (req, res) => {
 // --- THE CORE PLAYWRIGHT LOGIC (FAITHFUL ADAPTATION) ---
 async function getUberPrice(userId, origin, destination) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const storageStatePath = path.resolve(__dirname, "auth.json"); // Using the single auth.json for the demo
+  const storageStatePath = path.resolve(
+    __dirname,
+    "auth_sessions",
+    `${userId}_auth.json`
+  );
 
   if (!fs.existsSync(storageStatePath)) {
     throw new Error("auth.json not found.");
@@ -283,6 +287,78 @@ async function sendOmiNotification(userId, message) {
 }
 
 // --- START THE SERVER ---
+app.get("/onboarding", (req, res) => {
+  const userId = req.query.uid;
+  if (!userId) {
+    return res
+      .status(400)
+      .send("Invalid onboarding link. Please try installing the app again.");
+  }
+  // Simple HTML page with instructions
+  res.send(`
+    <html>
+      <body style="font-family: sans-serif; padding: 20px;">
+        <h1>Welcome to Uber for Omi! (One-Time Setup)</h1>
+        <p>To use this app, you need to securely link your Uber account.</p>
+        <h3>Instructions:</h3>
+        <ol>
+          <li><b>On a computer</b>, open your terminal (Command Prompt, PowerShell, or Terminal).</li>
+          <li>Copy and paste this command and press Enter: <br>
+            <code style="background: #eee; padding: 5px; border-radius: 5px;">npx playwright codegen --save-storage=auth.json https://m.uber.com</code>
+          </li>
+          <li>A new browser will open. <b>Log in to your Uber account.</b></li>
+          <li>Once you're logged in, close that browser window.</li>
+          <li>A file named <b>auth.json</b> will now be on your computer. Open it with any text editor.</li>
+          <li>Copy the <b>entire contents</b> of the file.</li>
+          <li>Paste the contents into the box below and click Save.</li>
+        </ol>
+        <hr>
+        <form action="/save_auth?uid=${userId}" method="post">
+          <textarea name="auth_content" rows="10" cols="80" placeholder="Paste the entire contents of your auth.json file here..."></textarea>
+          <br><br>
+          <button type="submit">Save My Uber Session</button>
+        </form>
+      </body>
+    </html>
+  `);
+});
+
+// This endpoint receives the pasted auth content and saves it.
+app.post("/save_auth", express.text({ type: "*/*" }), async (req, res) => {
+  const userId = req.query.uid;
+  const authContent = req.body;
+
+  if (!userId || !authContent) {
+    return res.status(400).send("Missing user ID or auth content.");
+  }
+
+  try {
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const userAuthDir = path.resolve(__dirname, "auth_sessions");
+    // Ensure the directory exists
+    if (!fs.existsSync(userAuthDir)) {
+      fs.mkdirSync(userAuthDir, { recursive: true });
+    }
+    const userAuthPath = path.resolve(userAuthDir, `${userId}_auth.json`);
+
+    // Validate it's proper JSON before saving
+    JSON.parse(authContent);
+
+    fs.writeFileSync(userAuthPath, authContent);
+    console.log(`Successfully saved auth session for user: ${userId}`);
+    res.send(
+      "<h1>Success!</h1><p>Your Uber account is now linked. You can close this window and start using the app with your voice.</p>"
+    );
+  } catch (error) {
+    console.error(`Failed to save auth for user ${userId}:`, error);
+    res
+      .status(500)
+      .send(
+        "<h1>Error</h1><p>The content you pasted was not valid JSON. Please try again.</p>"
+      );
+  }
+});
+
 app.listen(CONFIG.PORT, () => {
   console.log(`Omi Uber App server listening on port ${CONFIG.PORT}`);
 });

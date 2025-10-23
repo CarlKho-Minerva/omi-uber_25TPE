@@ -4,5 +4,6 @@ node_modules
 # Secrets
 .env
 auth.json
-
 /.github/
+
+auth_sessions/*.json
