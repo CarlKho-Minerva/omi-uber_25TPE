@@ -1,4 +1,4 @@
-// server.mjs (FINAL - FAITHFUL ADAPTATION OF THE WORKING SCRIPT)
+// server.mjs
 import express from "express";
 import { chromium } from "playwright";
 import path from "path";
@@ -40,7 +40,7 @@ app.post("/webhook", async (req, res) => {
     .toLowerCase();
   console.log(`Chunk: "${newText}"`);
 
-  const match = newText.match(/uber (?:from|starting at)\s+(.+?)\s+to\s+(.+)/);
+    const match = newText.match(/uber (?:from|starting at)\s+(.+?)\s+to\s+([^.]+)/);
 
   if (match && match[1] && match[2]) {
     const origin = match[1].trim();
@@ -113,7 +113,7 @@ async function getUberPrice(userId, origin, destination) {
         // --- PRECISE CHANGE #1: TYPE THE ORIGIN INSTEAD OF CLICKING "CURRENT LOCATION" ---
         console.log(`Typing origin: "${origin}"`);
         await page.fill(sel, origin);
-        await page.waitForTimeout(13500); // Wait for suggestions
+        await page.waitForTimeout(3500); // Wait for suggestions
         await page.keyboard.press("Enter");
         // --- END OF CHANGE #1 ---
 
