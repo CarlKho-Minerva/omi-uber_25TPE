@@ -1,30 +1,25 @@
 {
-  "name": "omi-uber_25tpe",
+  "name": "omi-uber-deploy",
   "version": "1.0.0",
-  "description": "",
-  "main": "tmp-find-login.js",
+  "description": "Omi Uber voice automation service.",
+  "main": "server.mjs",
   "scripts": {
     "start": "node server.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/CarlKho-Minerva/omi-uber_25TPE.git"
-  },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "omi",
+    "uber",
+    "playwright",
+    "automation"
+  ],
+  "author": "Carl Kho",
   "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/CarlKho-Minerva/omi-uber_25TPE/issues"
-  },
-  "homepage": "https://github.com/CarlKho-Minerva/omi-uber_25TPE#readme",
-  "devDependencies": {
-    "playwright": "^1.56.1"
-  },
   "dependencies": {
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "node-fetch": "^2.7.0",
+    "playwright": "^1.56.1",
     "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2"
   }
