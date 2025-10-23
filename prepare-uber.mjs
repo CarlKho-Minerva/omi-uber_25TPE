@@ -28,89 +28,101 @@ import path from 'path';
     const page = await context.newPage();
     await page.goto('https://m.uber.com');
 
-    // Ensure pickup uses current location: try several pickup combobox selectors and select 'Use current location'.
+    // Robust pickup handling: try selectors, wait for pickup to be populated after selecting current location
     const pickupCandidates = [
       '[data-testid="enhancer-container-pickup0"] [role="combobox"]',
+      '[data-testid^="enhancer-container"] [role="combobox"]',
       'role=combobox[name=/pickup/i]',
       'role=combobox >> nth=0',
     ];
-    let pickupFound = false;
+    let pickupSet = false;
     for (const sel of pickupCandidates) {
       try {
         const loc = page.locator(sel).first();
         if (await loc.count() === 0) continue;
         await loc.scrollIntoViewIfNeeded();
-        await loc.click({ timeout: 5000 });
-        pickupFound = true;
+        await loc.click({ timeout: 8000 });
 
-        // Try to click obvious "current location" options
-        const useCurrentOption = page.getByRole('option', { name: /current location|Your current location|Use my location/i }).first();
-        if (await useCurrentOption.count() > 0) {
-          await useCurrentOption.click();
+        // look for 'Use current location' option by common texts
+        const useCurrent = page.getByRole('option', { name: /current location|Your current location|Use my location|Use current location/i }).first();
+        if (await useCurrent.count() > 0) {
+          await useCurrent.click();
         } else {
-          // Fallback: click map 'Show your location' / center button if present
-          const centerBtn = page.locator('button:has(img[alt="Center"])').first();
+          // fallback to clicking any button that looks like a location pin/center control
+          const centerBtn = page.locator('button:has(img[alt="Center"]), button[aria-label*="location" i], button:has(svg)').first();
           if (await centerBtn.count() > 0) {
             await centerBtn.click();
-          } else {
-            console.warn('Could not find an explicit "Use current location" control for pickup (selector=' + sel + ').');
           }
         }
-        break;
+
+        // wait for pickup combobox to contain a non-empty text (address) — up to 6s
+        try {
+          await page.waitForFunction((s) => {
+            const el = document.querySelector(s);
+            if (!el) return false;
+            const txt = el.innerText || el.getAttribute('aria-label') || '';
+            return txt.trim().length > 3;
+          }, sel, { timeout: 6000 });
+          pickupSet = true;
+          break;
+        } catch (e) {
+          // not populated yet, try next selector
+          continue;
+        }
       } catch (err) {
-        // try next candidate
         continue;
       }
     }
-    if (!pickupFound) {
-      console.warn('Pickup combobox not found with any candidate selectors. Continuing; pickup may be empty.');
+    if (!pickupSet) {
+      console.warn('Pickup not explicitly set — proceeding (may result in Search remaining disabled).');
     }
 
-    // Ensure we're on the ride flow by waiting for the dropoff combobox to appear.
-    // Save a debug screenshot if the selector does not appear in time.
+    // Wait for the dropoff combobox to appear (with debug screenshot on timeout)
     const dropSelector = '[data-testid="enhancer-container-drop0"] [role="combobox"]';
     try {
       await page.waitForSelector(dropSelector, { timeout: 30000 });
     } catch (err) {
       const debugOut = path.resolve(process.cwd(), 'scripts', 'debug-uber.png');
-      try {
-        await page.screenshot({ path: debugOut, fullPage: true });
-        console.error('Timeout waiting for drop selector — saved debug screenshot to', debugOut);
-      } catch (screenshotErr) {
-        console.error('Failed to save debug screenshot:', screenshotErr);
-      }
+      try { await page.screenshot({ path: debugOut, fullPage: true }); console.error('Timeout waiting for drop selector — saved debug screenshot to', debugOut); } catch(e){}
       throw err;
     }
-  await page.click(dropSelector);
-    await page.fill(dropSelector, 'NTU');
-    await page.waitForTimeout(800);
 
-    // Choose NTU suggestion (best-effort by matching text)
-    const opt = await page.locator('role=option >> text=台大校園內').first();
-    if (await opt.count() > 0) {
-      await opt.click();
-    } else {
+    // Type NTU and select the exact NTU suggestion when present
+    await page.click(dropSelector);
+    await page.fill(dropSelector, 'Digital Plaza');
+    // wait for suggestions to populate
+    try {
+      const ntuOption = page.getByRole('option', { name: /台大校園內卓越聯合中心|台大校園內/ }).first();
+      await ntuOption.waitFor({ timeout: 800 });
+      await ntuOption.click();
+    } catch (err) {
       // fallback: press Enter to accept the first suggestion
       await page.keyboard.press('Enter');
     }
 
-    // Click Search when enabled
-    const search = page.getByRole('button', { name: 'Search' });
+    // Click Search when enabled — find and click the real button via page.evaluate to avoid locator instability
     try {
-      // Wait until Search is present and enabled (not disabled)
       await page.waitForFunction(() => {
         const btn = Array.from(document.querySelectorAll('button')).find(b => {
-          const label = b.getAttribute('aria-label') || b.innerText || '';
-          return /search/i.test(label.trim());
+          const label = (b.getAttribute('aria-label') || b.innerText || '').trim();
+          return /search/i.test(label) && !b.disabled;
         });
-        return !!btn && !btn.disabled;
+        return !!btn;
       }, null, { timeout: 30000 });
     } catch (err) {
       const debugOut = path.resolve(process.cwd(), 'scripts', 'debug-search-wait.png');
       try { await page.screenshot({ path: debugOut, fullPage: true }); console.error('Search button did not become enabled — saved', debugOut); } catch(e){}
       throw err;
     }
-    await search.click();
+
+    // click the button via evaluate
+    await page.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll('button')).find(b => {
+        const label = (b.getAttribute('aria-label') || b.innerText || '').trim();
+        return /search/i.test(label) && !b.disabled;
+      });
+      if (btn) btn.click();
+    });
 
     // Wait for product selection to populate
     await page.waitForSelector('role=listbox', { timeout: 10000 });
