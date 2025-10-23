@@ -312,8 +312,7 @@ app.get("/onboarding", (req, res) => {
   res.send(generateOnboardingHTML(userId));
 });
 
-// This endpoint receives the pasted auth content and saves it.
-// --- THE SAVE ENDPOINT (WITH CRITICAL DECODING FIX) ---
+// --- THE SAVE ENDPOINT (WITH CRITICAL FIX) ---
 app.post(
   "/save_auth",
   express.text({ type: "text/plain" }),
@@ -326,18 +325,13 @@ app.post(
     }
 
     try {
-      // Step 1: Extract the content after "auth_content="
+      // Step 1: Extract the content after the first '='. This is the raw JSON string.
       const authContent = rawBody.substring(rawBody.indexOf("=") + 1);
 
-      // Step 2: THE FIX - Decode the URL-encoded string
-      const decodedContent = decodeURIComponent(
-        authContent.replace(/\+/g, " ")
-      );
+      // Step 2: Validate that the extracted string is proper JSON. No decoding is needed.
+      JSON.parse(authContent);
 
-      // Step 3: Now, validate the CLEAN string is proper JSON
-      JSON.parse(decodedContent);
-
-      // --- The rest of the logic is the same ---
+      // Step 3: The rest of the logic remains the same.
       const __dirname = path.dirname(fileURLToPath(import.meta.url));
       const userAuthDir = path.resolve(__dirname, "auth_sessions");
       if (!fs.existsSync(userAuthDir)) {
@@ -345,8 +339,8 @@ app.post(
       }
       const userAuthPath = path.resolve(userAuthDir, `${userId}_auth.json`);
 
-      // Step 4: Save the CLEAN, decoded content
-      fs.writeFileSync(userAuthPath, decodedContent);
+      // Step 4: Save the original, validated content.
+      fs.writeFileSync(userAuthPath, authContent);
 
       console.log(`Successfully saved auth session for user: ${userId}`);
       res.send(
