@@ -15,8 +15,8 @@ dotenv.config();
 // ==============================================================================
 const CONFIG = {
   AUTO_CONFIRM_RIDE: true, // DANGER: THIS WILL REQUEST A REAL UBER AND COST MONEY.
-  HEADLESS_MODE: false, // KEEP FALSE TO WATCH!
-  SEND_NOTIFICATIONS: false,
+  HEADLESS_MODE: true,
+  SEND_NOTIFICATIONS: true,
   OMI_APP_ID: process.env.OMI_APP_ID,
   OMI_APP_SECRET: process.env.OMI_APP_SECRET,
   PORT: process.env.PORT || 8080,
