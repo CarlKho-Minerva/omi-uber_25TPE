@@ -14,9 +14,9 @@ dotenv.config();
 // --- CONFIGURATION ---
 // ==============================================================================
 const CONFIG = {
-  DEMO_MODE: false, // If true, calls the ride and cancels it immediately; False -> returns price and ETA only.
-  HEADLESS_MODE: true, // KEEP FALSE TO WATCH!
-  SEND_NOTIFICATIONS: true,
+  AUTO_CONFIRM_RIDE: true, // DANGER: THIS WILL REQUEST A REAL UBER AND COST MONEY.
+  HEADLESS_MODE: false, // KEEP FALSE TO WATCH!
+  SEND_NOTIFICATIONS: false,
   OMI_APP_ID: process.env.OMI_APP_ID,
   OMI_APP_SECRET: process.env.OMI_APP_SECRET,
   PORT: process.env.PORT || 8080,
@@ -65,14 +65,14 @@ app.post("/webhook", async (req, res) => {
       );
       try {
         const rideDetails = await getUberPrice(userId, origin, destination);
-        const confirmationMessage = `Ride from ${origin} to ${destination}: ${rideDetails.priceText} (${rideDetails.eta}). Tap to confirm.`;
+        const confirmationMessage = `Ride from ${origin} to ${destination}: ${rideDetails.priceText} (${rideDetails.eta}). Uber will send a notification when the ride is confirmed.`;
         await sendOmiNotification(userId, confirmationMessage);
       } catch (error) {
         console.error("Playwright automation failed:", error);
-        await sendOmiNotification(
-          userId,
-          "Sorry, I was unable to get details."
-        );
+        // await sendOmiNotification(
+        //   userId,
+        //   "Sorry, I was unable to get details."
+        // );
       }
     })();
   } else {
@@ -102,6 +102,7 @@ async function getUberPrice(userId, origin, destination) {
   const browser = await chromium.launch({
     headless: CONFIG.HEADLESS_MODE,
     channel: "chrome",
+    bypassCSP: true,
   });
   const context = await browser.newContext({
     storageState: storageStatePath,
@@ -206,49 +207,55 @@ async function getUberPrice(userId, origin, destination) {
     const priceText = allText.pop() || "";
     const eta = allText.find((t) => /min/i.test(t)) || "N/A";
 
-    // --- END OF BATTLE-TESTED LOGIC ---
-
     console.log(`Scraped Details: Price=${priceText}, ETA=${eta}`);
-    // --- START OF NEW DEMO MODE BLOCK ---
-    if (CONFIG.DEMO_MODE) {
-      console.log("[DEMO MODE] Selecting first ride option...");
+    // --- START OF FINAL, ROBUST DEMO BLOCK ---
+    if (CONFIG.AUTO_CONFIRM_RIDE) {
+      console.log("[LIVE MODE] Selecting first ride option...");
       await firstOption.click();
-      await page.waitForTimeout(2000); // Wait for confirm button to appear
 
-      console.log("[DEMO MODE] Clicking final 'Confirm' button...");
-      // This selector targets the button that confirms the specific ride, e.g., "Confirm UberX"
-      const confirmButton = page
-        .getByRole("button", { name: /confirm/i })
-        .first();
-      await confirmButton.click();
+      // Give the page a moment to react and potentially render the modal
+      await page.waitForTimeout(1500);
 
-      // Wait for the trip to be booked and the 'Cancel' option to appear
-      await page.waitForTimeout(4000);
+      // --- PRECISE FIX: DEFENSIVELY PRESS ESCAPE TO CLOSE ANY MODAL ---
+      console.log("[LIVE MODE] Defensively checking for any pop-up modal...");
 
-      console.log("[DEMO MODE] Clicking 'Cancel' button...");
-      const cancelButton = page
-        .getByRole("button", { name: /cancel/i })
-        .first();
-      await cancelButton.click();
+      // A generic locator for any dialog box on the page
+      const anyDialog = page.locator('div[role="dialog"]').first();
 
-      // Wait for the final cancellation confirmation dialog
-      await page.waitForTimeout(1000);
-
-      console.log("[DEMO MODE] Confirming the cancellation...");
-      // This selector might need to be adjusted based on the exact text (e.g., "YES, CANCEL")
-      const finalCancelButton = page
-        .getByRole("button", { name: /yes, cancel/i })
-        .first();
-      if ((await finalCancelButton.count()) > 0) {
-        await finalCancelButton.click();
+      // Check if the dialog actually appeared and is visible
+      if ((await anyDialog.count()) > 0 && (await anyDialog.isVisible())) {
+        console.log(
+          "[LIVE MODE] Modal detected. Pressing 'Escape' key to close it."
+        );
+        // The most reliable way to close a modal
+        await page.keyboard.press("Escape");
+        // Wait for the dismiss animation to complete before proceeding
+        await page.waitForTimeout(1000);
+      } else {
+        console.log(
+          "[LIVE MODE] No modal found. Continuing directly to request button."
+        );
       }
+      // --- END OF FIX ---
+
+      console.log("[LIVE MODE] Finding the 'Request' button...");
+      const requestButton = page.locator(
+        'button[data-testid="request_trip_button"]'
+      );
+
+      console.log("[LIVE MODE] Scrolling to the 'Request' button...");
+      await requestButton.scrollIntoViewIfNeeded();
+
+      console.log("[LIVE MODE] Clicking final 'Request' button...");
+      await requestButton.click();
 
       console.log(
-        "[DEMO MODE] Ride requested and canceled successfully for demo."
+        "[LIVE MODE] Ride requested! Waiting 15 seconds for Uber's system to process..."
       );
-      await page.waitForTimeout(2000); // Final pause to show it's done
+      await page.waitForTimeout(15000);
     }
-    // --- END OF NEW DEMO MODE BLOCK ---
+    // --- END OF LIVE CONFIRMATION LOGIC ---
+
     return { priceText: priceText.trim(), eta: eta.trim() };
   } catch (error) {
     const debugPath = path.resolve(__dirname, "playwright-error.png");
@@ -257,7 +264,7 @@ async function getUberPrice(userId, origin, destination) {
     throw error;
   } finally {
     console.log("Closing browser.");
-    await browser.close();
+    // await browser.close();
   }
 }
 
@@ -405,109 +412,3 @@ function generateOnboardingHTML(userId) {
 app.listen(CONFIG.PORT, () => {
   console.log(`Omi Uber App server listening on port ${CONFIG.PORT}`);
 });
-
-// function generateOnboardingHTML(userId) {
-//   return `
-//     <!DOCTYPE html>
-//     <html lang="en">
-//     <head>
-//         <meta charset="UTF-8">
-//         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-//         <title>Link Your Uber Account</title>
-//         <style>
-//             @import url('https://d3i4yxtzktqr9n.cloudfront.net/web-eats-legacy/v1/css/UberMoveText.css');
-//             body {
-//                 margin: 0;
-//                 font-family: 'Uber Move Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-//                 background-color: #f6f6f6;
-//                 color: #111;
-//                 display: flex;
-//                 justify-content: center;
-//                 align-items: center;
-//                 min-height: 100vh;
-//                 padding: 20px;
-//                 box-sizing: border-box;
-//             }
-//             .container {
-//                 background-color: #fff;
-//                 padding: 48px;
-//                 border-radius: 12px;
-//                 box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-//                 max-width: 600px;
-//                 width: 100%;
-//             }
-//             .header {
-//                 font-family: 'Uber Move', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-//                 font-size: 36px;
-//                 font-weight: 700;
-//                 margin-bottom: 24px;
-//             }
-//             p, li {
-//                 font-size: 16px;
-//                 line-height: 1.6;
-//                 color: #545454;
-//             }
-//             ol {
-//                 padding-left: 20px;
-//             }
-//             code {
-//                 background: #eee;
-//                 padding: 5px 8px;
-//                 border-radius: 5px;
-//                 font-family: monospace;
-//                 word-break: break-all;
-//                 border: 1px solid #e0e0e0;
-//             }
-//             textarea {
-//                 width: 100%;
-//                 padding: 12px;
-//                 border: 1px solid #ccc;
-//                 border-radius: 8px;
-//                 font-size: 14px;
-//                 margin-top: 16px;
-//                 resize: vertical;
-//                 box-sizing: border-box;
-//             }
-//             button {
-//                 background-color: #000;
-//                 color: #fff;
-//                 border: none;
-//                 padding: 14px 24px;
-//                 font-size: 16px;
-//                 font-weight: 500;
-//                 border-radius: 8px;
-//                 cursor: pointer;
-//                 width: 100%;
-//                 margin-top: 24px;
-//                 transition: background-color 0.2s;
-//             }
-//             button:hover {
-//                 background-color: #333;
-//             }
-//         </style>
-//     </head>
-//     <body>
-//         <div class="container">
-//             <div class="header">Link Your Uber Account</div>
-//             <p>To use voice commands with Omi, this app needs to securely link your Uber session. Your password is never seen or stored by our service.</p>
-
-//             <h3>Instructions</h3>
-//             <ol>
-//                 <li><b>On a computer</b>, open a terminal and run this command:</li>
-//                 <li><code>npx playwright codegen --save-storage=auth.json https://m.uber.com</code></li>
-//                 <li>A new browser will open. Please <b>log in to your Uber account.</b></li>
-//                 <li>After you are logged in, close that browser window.</li>
-//                 <li>A file named <b>auth.json</b> will be saved. Open it with any text editor.</li>
-//                 <li>Copy the <b>entire contents</b> of the file.</li>
-//                 <li>Paste the contents into the box below and click Save.</li>
-//             </ol>
-
-//             <form action="/save_auth?uid=${userId}" method="post" enctype="text/plain">
-//                 <textarea name="auth_content" rows="8" placeholder="Paste the entire contents of your auth.json file here..." required></textarea>
-//                 <button type="submit">Save My Uber Session</button>
-//             </form>
-//         </div>
-//     </body>
-//     </html>
-//   `;
-// }
